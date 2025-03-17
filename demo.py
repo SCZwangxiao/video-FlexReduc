@@ -208,9 +208,13 @@ if __name__ == "__main__":
     # hf_model_path = 'llava-hf/llava-onevision-qwen2-7b-ov-hf'
     # model_name = 'llava_onevision'
 
-    # NOTE: for Nvidia GPUs
+    # NOTE: for 7B models in Nvidia GPUs
     config_path = 'configs/demo.yaml'
     device = 'cuda:0'
+
+    # NOTE: for 72B models in Nvidia GPUs
+    config_path = 'configs/demo.yaml'
+    device = 'auto'
 
     # NOTE: for NPUs or GPUs without support for FlashAttention
     # config_path = 'configs/demo_npu.yaml'
@@ -244,7 +248,10 @@ if __name__ == "__main__":
 
         videos_kwargs = dict(fps=sampling_fps)
         inputs = processor(text=[text_prompt], videos=[video], padding=True, return_tensors="pt", **videos_kwargs)
-        inputs = inputs.to(device)
+        if device == 'auto':
+            inputs = inputs.to('cuda')
+        else:
+            inputs = inputs.to(device)
         inputs['pixel_values_videos'] = inputs['pixel_values_videos'].to(torch.bfloat16)
 
         # Inference: Generation of the output

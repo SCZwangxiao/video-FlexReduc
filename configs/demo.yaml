@@ -3,23 +3,21 @@ method: retake
 scaling_factor: 4
 attn_implementation: "flash_attention_2"
 longvideo_kwargs: {
-  'frame_chunk_size': 128,
+  'frame_chunk_size': 64,
   'chunked_prefill_frames': 32,
-  # Keyframe compression
-  'visual_compression': True,
-  'visual_compression_kwargs': {
-    'compression_ratio': 1.0,
-    'compression_method': 'Keyframe',
-    'patch_sync': False,
-    'return_keyframe_mask': True
-  },
   # KVCache compression
   'kvcache_compression': True,
   'kvcache_compression_kwargs': {
+    'compression_method': 'stdvidlkv',
     'dynamic_compression_ratio': True,
-    'compression_method': 'pivotkv',
-    'pos_embed_reforge': True,
-    'max_input_length': 32000
+    'prompt_guided_compression': True,
+    'pos_embed_reforge': False,
+    'max_input_length': 16000,
+    # Temporal
+    'enable_temporal_adaptation': True,
+    'temporal_adaptation_ratio': 4,
+    # Layer
+    'budget_allocation_method': 'adakv',
   },
 }
 

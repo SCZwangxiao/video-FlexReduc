@@ -623,7 +623,13 @@ class StandardVidLangKVCache(VidLangKVCache):
             compression_ratio_layers = self.compression_ratio * torch.ones(self.num_hidden_layers)
         elif self.budget_allocation_method.lower() == 'adakv':
             k_len = self.attn_cumscores_cache[0].shape[0]
-            attn_cumscores_layers = torch.cat(self.attn_cumscores_cache) # [num_layers * k_len]
+            if self.attn_cumscores_cache[0].device != self.attn_cumscores_cache[-1].device:
+                attn_cumscores_cache = [
+                    attn_cache.cpu() for attn_cache in self.attn_cumscores_cache
+                ]
+            else:
+                attn_cumscores_cache = self.attn_cumscores_cache
+            attn_cumscores_layers = torch.cat(attn_cumscores_cache) # [num_layers * k_len]
             cache_bugdet = int(max(1, self.compression_ratio * k_len) * self.num_hidden_layers)
             _, keep_indices = attn_cumscores_layers.topk(cache_bugdet)
 

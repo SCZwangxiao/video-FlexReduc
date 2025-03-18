@@ -1,16 +1,17 @@
-# FlexReduc: Flexible Redundancy Reduction to Perceive Longer for Video-language Understanding
+# [AdaReTaKe: Adaptive Redundancy Reduction to Perceive Longer for Video-language Understanding](https://arxiv.org/abs/2503.12559)
 
-FlexReduc, also known as AdaReTaKe, is an advanced video compression method designed for MLLMs to effectively reduce context length, breaking the “memory wall” to enable longer video perception with improved performance. It adaptively reduces uneven visual redundancy across timestamps and MLLM layers, extending model capacity from 256 to 2048 frames for long video understanding. By introducing an adaptive compression ratio allocation strategy, FlexReduc theoretically minimizes compression loss and achieves state-of-the-art results, outperforming existing MLLMs by an average of 2.3% and 2.8% across four datasets for 7B and 72B models, respectively.
+
+AdaReTaKe, is an advanced video compression method designed for MLLMs to effectively reduce context length, breaking the “memory wall” to enable longer video perception with improved performance. It adaptively reduces uneven visual redundancy across timestamps and MLLM layers, extending model capacity from 256 to 2048 frames for long video understanding. By introducing an adaptive compression ratio allocation strategy, AdaReTaKe theoretically minimizes compression loss and achieves state-of-the-art results, outperforming existing MLLMs by an average of 2.3% and 2.8% across four datasets for 7B and 72B models, respectively.
 
 ---
 
 ## 🚀 Key Contributions
 
-- We identify uneven visual redundancy across timestamps and MLLM layers and develop FlexReduc to adaptively reduce it, expanding MLLM capacity from 256 to 2048 frames for long video understanding.
+- We identify uneven visual redundancy across timestamps and MLLM layers and develop AdaReTaKe to adaptively reduce it, expanding MLLM capacity from 256 to 2048 frames for long video understanding.
 -  We design an adaptive compression ratio allocation method across timestamps and MLLM layers, with theoretical analysis showing that layer-wise allocation minimizes the upper bound of compression loss.
 
 <p align="center">
-  <img src="misc/flexreduc_pipeline.png" alt="Overview of FlexReduc" width="60%">
+  <img src="misc/flexreduc_pipeline.png" alt="Overview of AdaReTaKe" width="60%">
 </p>
 
 ---
@@ -59,7 +60,7 @@ python demo.py
 
 ---
 
-## 📊 Reproducing FlexReduc Results
+## 📊 Reproducing AdaReTaKe Results
 
 ### Step 1: Prepare Datasets
 Follow the documentation to prepare the required datasets:

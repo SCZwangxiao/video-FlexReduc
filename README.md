@@ -1,51 +1,69 @@
-# [AdaReTaKe: Adaptive Redundancy Reduction to Perceive Longer for Video-language Understanding](https://arxiv.org/abs/2503.12559)
-
-
-AdaReTaKe, is an advanced video compression method designed for MLLMs to effectively reduce context length, breaking the “memory wall” to enable longer video perception with improved performance. It adaptively reduces uneven visual redundancy across timestamps and MLLM layers, extending model capacity from 256 to 2048 frames for long video understanding. By introducing an adaptive compression ratio allocation strategy, AdaReTaKe theoretically minimizes compression loss and achieves state-of-the-art results, outperforming existing MLLMs by an average of 2.3% and 2.8% across four datasets for 7B and 72B models, respectively.
-
----
-
-## 🚀 Key Contributions
-
-- We identify uneven visual redundancy across timestamps and MLLM layers and develop AdaReTaKe to adaptively reduce it, expanding MLLM capacity from 256 to 2048 frames for long video understanding.
--  We design an adaptive compression ratio allocation method across timestamps and MLLM layers, with theoretical analysis showing that layer-wise allocation minimizes the upper bound of compression loss.
+# 🌟 AdaReTaKe: Adaptive Redundancy Reduction for Long-Context Video-Language Understanding  
+[![Paper](https://img.shields.io/badge/arXiv-2503.12559-b31b1b.svg)](https://arxiv.org/abs/2503.12559)  
+*Breaking the "Memory Wall" for MLLMs with Adaptive Video Compression*
 
 <p align="center">
-  <img src="misc/flexreduc_pipeline.png" alt="Overview of AdaReTaKe" width="60%">
+  <img src="misc/flexreduc_pipeline.png" alt="AdaReTaKe Framework" width="70%">
 </p>
 
 ---
 
-## ⚙️ Environment Setup
+## 🔍 Overview  
+**AdaReTaKe** is an advanced video compression framework designed for Multimodal Large Language Models (MLLMs). By adaptively reducing uneven visual redundancy across timestamps and model layers, it:  
+✅ **Extends context capacity** from 256 to **2048 frames**  
+✅ **Theoretically minimizes compression loss** via adaptive ratio allocation  
+✅ **Outperforms SOTA** by **+2.3% (7B)** and **+2.8% (72B)** on four benchmarks  
 
-### For GPU Users:
+---
+
+## 📜 Release Note  
+The current open-source version is an **early research release** capable of reproducing leaderboard results.  
+
+🔒 **Full version status**: Undergoing internal review (commercial considerations)  
+🔄 **Post-approval**: Complete code will be released for **research purposes only**  
+
+📝 **[Request Access via Google Form](https://docs.google.com/forms/d/e/1FAIpQLSf4l6fFTJgiRawMngOBo36NpZDgpHdQuOnbUaPFObnQfZ_FRg/viewform?usp=dialog)**  
+*We appreciate your interest and patience!*  
+
+---
+
+## 🎯 Key Contributions  
+| Feature | Innovation |
+|---------|------------|
+| **Adaptive Redundancy Reduction** | Layer-wise + timestamp-wise compression for maximal context retention |
+| **Scalability** | Validated on 7B to 72B MLLMs with consistent gains |
+| **Theoretical Guarantee** | Compression ratio allocation minimizes the loss upper bound |
+
+---
+
+## 🛠️ Setup  
+
+### 🌐 Environment  
 ```bash
+# For GPU users
 conda env create -f environment.yaml
-```
 
-### For NPU Users:
-```bash
+# For NPU users (e.g., Ascend)
 conda env create -f environment_npu.yaml
-```
 
-### Additional Dependencies:
-```bash
+# Additional dependencies
 pip install git+https://github.com/huggingface/transformers.git@f3f6c86582611976e72be054675e2bf0abb5f775
-apt-get install ffmpeg  # Required for full functionality; quick demo does not require ffmpeg.
+apt-get install ffmpeg  # Required for full video processing
 ```
 
 ---
 
-## 🖥️ Quick Demo
+## 🚦 Quick Start  
 
-### Step 1: Update Configuration
-Modify the `hf_qwen2vl7b_path` in `./demo.py` to point to your local path for `Qwen2-VL-7B-Instruct`.  
-For NPU users, also update `config_path` to `'configs/demo_npu.yaml'`.
+### 1️⃣ Configure Paths  
+Edit `demo.py`:  
+```python
+hf_qwen2vl7b_path = "your/local/path/to/Qwen2-VL-7B-Instruct"  
+# NPU users: config_path = 'configs/demo_npu.yaml'
+```
 
-### Step 2 (Optional for LLaVA-Video): Convert Model
+### 2️⃣ (Optional) Convert LLaVA-Video Weights  
 ```bash
-# Convert LLaVA-Video model into Hugging Face format
-# Ensure the following models are downloaded: Qwen2-7B-Instruct, siglip-so400m-patch14-384, and LLaVAVideoQwen2_7B.
 python scripts/utils/convert_llava_video_weights_to_hf.py \
   --text_model_id /path_to/Qwen2-7B-Instruct \
   --vision_model_id /path_to/siglip-so400m-patch14-384 \
@@ -53,29 +71,32 @@ python scripts/utils/convert_llava_video_weights_to_hf.py \
   --old_state_dict_id /path_to/LLaVAVideoQwen2_7B
 ```
 
-### Step 3: Run the Demo
+### 3️⃣ Run Demo  
 ```bash
 python demo.py
 ```
 
 ---
 
-## 📊 Reproducing AdaReTaKe Results
+## 📈 Reproduce Results  
 
-### Step 1: Prepare Datasets
-Follow the documentation to prepare the required datasets:
-- [VideoMME](docs/prepare_videomme.md)
-- [MLVU](docs/prepare_mlvu.md)
-- [LongVideoBench](docs/prepare_longvideobench.md)
-- [LVBench](docs/prepare_lvbench.md)
+### Dataset Preparation  
+- [VideoMME](docs/prepare_videomme.md)  
+- [MLVU](docs/prepare_mlvu.md)  
+- [LongVideoBench](docs/prepare_longvideobench.md)  
+- [LVBench](docs/prepare_lvbench.md)  
 
-### Step 2: Run Inference and Evaluation
-Use the provided script to perform inference and evaluation:
+### Evaluation Scripts  
 ```bash
-bash scripts/infer_eval.sh ${YOUR_PATH_TO_Qwen2.5-VL-7B-Instruct} configs/qwen2_5_vl/flexreduc_qwen2-5-vl_videomme.yaml 8
-bash scripts/infer_eval.sh ${YOUR_PATH_TO_Qwen2.5-VL-7B-Instruct} configs/qwen2_5_vl/flexreduc_qwen2-5-vl_mlvu.yaml 8
-bash scripts/infer_eval.sh ${YOUR_PATH_TO_Qwen2.5-VL-7B-Instruct} configs/qwen2_5_vl/flexreduc_qwen2-5-vl_longvideobench.yaml 8
-bash scripts/infer_eval.sh ${YOUR_PATH_TO_Qwen2.5-VL-7B-Instruct} configs/qwen2_5_vl/flexreduc_qwen2-5-vl_lvbench.yaml 8
+# Example for VideoMME (adjust for other datasets)
+bash scripts/infer_eval.sh ${Qwen2.5-VL-7B-PATH} configs/qwen2_5_vl/flexreduc_qwen2-5-vl_videomme.yaml 8
 ```
+*Results saved in `./results`*
 
-- Results will be saved in the `./results` directory.
+---
+
+## 📄 License  
+*Pending final release*  
+⚠️ **Research use only** — Commercial applications require explicit permission.  
+
+---

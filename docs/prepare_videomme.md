@@ -22,14 +22,15 @@ ${videomme_root}/
 ```bash
 cd ${videomme_root}
 unzip subtitle.zip
-cat videos_chunked_*.zip > videos.zip
-unzip videos.zip
+for file in videos_chunked_*.zip; do
+    unzip "$file"
+done
 ```
 
 
 ### Step 3: Extract frames of all videos
 ```bash
-cd ${repo_root}
+cd ${retake_root}
 python scripts/utils/frame_extraction.py \
 --videofile_tpl ${videomme_root}/data/'*.mp4' \
 --results_dir ${videomme_root}/video_25fps \
@@ -40,14 +41,14 @@ python scripts/utils/frame_extraction.py \
 
 ### Step 4: Build VideoMME dataset
 ```bash
-cd ${repo_root}
+cd ${retake_root}
 python scripts/utils/build_videomme_dataset.py \
---hf_qwen2vl7b_path ${PATH_TO_Qwen2-VL-7B-Instruct} \
+--hf_qwen2vl7b_path ${PATH_TO_Qwen2_VL_7B_Instruct} \
 --hf_root ${videomme_root}
 ```
 Note that you can NOT modify folder `${videomme_root}/video_25fps` after this step, since the absolute path of extracted frames are written into annotation files `video_mme.json` and `video_mme_subtitle.json`:
 ```
-repo_root/
+retake_root/
 ├── dataset/
     ├── video_mme/
         ├── video_mme_subtitle.json

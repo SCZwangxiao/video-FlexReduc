@@ -30,7 +30,7 @@ unzip all_videos.zip
 
 ### Step 3: Extract frames of all videos
 ```bash
-cd ${repo_root}
+cd ${retake_root}
 python scripts/utils/frame_extraction.py \
 --videofile_tpl ${lvbench_root}/all_videos/'*.mp4' \
 --results_dir ${lvbench_root}/video_25fps \
@@ -41,12 +41,12 @@ python scripts/utils/frame_extraction.py \
 
 ### Step 4: Build LVBench dataset
 ```bash
-cd ${repo_root}
+cd ${retake_root}
 python scripts/utils/build_lvbench_dataset.py --hf_root ${lvbench_root}
 ```
 Note that you can NOT modify folder `${lvbench_root}/video_25fps` after this step, since the absolute path of extracted frames are written into annotation files `lvbench.json`:
 ```
-repo_root/
+retake_root/
 ├── dataset/
     ├── lvbench/
         ├── lvbench.json

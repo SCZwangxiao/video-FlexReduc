@@ -41,7 +41,8 @@ The current open-source version is an **early research release** capable of repr
 ### 🌐 Environment  
 ```bash
 # For GPU users
-conda env create -f environment.yaml
+conda create -n retake python=3.11
+pip install -r requirements.txt
 
 # For NPU users (e.g., Ascend)
 conda env create -f environment_npu.yaml

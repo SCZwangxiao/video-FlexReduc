@@ -11,6 +11,9 @@ from retake.qwen2_vl import (
     retake_Qwen2VLForConditionalGeneration_forward,
 )
 from retake.qwen2_5_vl import (
+    fixed_Qwen2_5_VLModel_prepare_4d_causal_attention_mask_with_cache_position,
+    retake_Qwen2_5_VLAttention_forward,
+    retake_Qwen2_5_VLSdpaAttention_forward,
     retake_Qwen2_5_VLFlashAttention2_forward,
     retake_Qwen2_5_VLForConditionalGeneration_segment_input_ids,
     retake_Qwen2_5_VLForConditionalGeneration_get_chunk_size,
@@ -88,6 +91,9 @@ def patch_qwen2_5_vl(method):
 
     if method == "retake":
         print("Using ReTaKe for Qwen2_5_VLForConditionalGeneration!")
+        transformers.models.qwen2_5_vl.modeling_qwen2_5_vl.Qwen2_5_VLModel._prepare_4d_causal_attention_mask_with_cache_position = fixed_Qwen2_5_VLModel_prepare_4d_causal_attention_mask_with_cache_position
+        transformers.models.qwen2_5_vl.modeling_qwen2_5_vl.Qwen2_5_VLAttention.forward = retake_Qwen2_5_VLAttention_forward
+        transformers.models.qwen2_5_vl.modeling_qwen2_5_vl.Qwen2_5_VLSdpaAttention.forward = retake_Qwen2_5_VLSdpaAttention_forward
         transformers.models.qwen2_5_vl.modeling_qwen2_5_vl.Qwen2_5_VLFlashAttention2.forward = retake_Qwen2_5_VLFlashAttention2_forward
         transformers.models.qwen2_5_vl.modeling_qwen2_5_vl.Qwen2_5_VLForConditionalGeneration.segment_input_ids = retake_Qwen2_5_VLForConditionalGeneration_segment_input_ids
         transformers.models.qwen2_5_vl.modeling_qwen2_5_vl.Qwen2_5_VLForConditionalGeneration.get_chunk_size = retake_Qwen2_5_VLForConditionalGeneration_get_chunk_size

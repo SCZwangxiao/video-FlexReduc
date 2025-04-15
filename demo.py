@@ -199,10 +199,10 @@ EXPECTED_ANSWERS = ['A', 'B', 'C']
 
 if __name__ == "__main__":
     #------------------- Modify the following configs ------------------#
-    hf_model_path = 'Qwen/Qwen2-VL-7B-Instruct' # TODO: replace to local path if you have trouble downloading huggingface models
-    model_name = 'qwen2_vl'
-    # hf_model_path = 'Qwen/Qwen2.5-VL-7B-Instruct'
-    # model_name = 'qwen2_5_vl'
+    # hf_model_path = 'Qwen/Qwen2-VL-7B-Instruct' # TODO: replace to local path if you have trouble downloading huggingface models
+    # model_name = 'qwen2_vl'
+    hf_model_path = 'Qwen/Qwen2.5-VL-7B-Instruct'
+    model_name = 'qwen2_5_vl'
     # hf_model_path = '/path_to/llava-video-qwen2-7b-hf'
     # model_name = 'llava_video'
     # hf_model_path = 'llava-hf/llava-onevision-qwen2-7b-ov-hf'
@@ -211,11 +211,9 @@ if __name__ == "__main__":
     # NOTE: for 7B models in Nvidia GPUs
     config_path = 'configs/demo.yaml'
     device = 'cuda:0'
-
     # NOTE: for 72B models in Nvidia GPUs
-    config_path = 'configs/demo.yaml'
-    device = 'auto'
-
+    # config_path = 'configs/demo.yaml'
+    # device = 'auto'
     # NOTE: for NPUs or GPUs without support for FlashAttention
     # config_path = 'configs/demo_npu.yaml'
     # device = 'npu:0'

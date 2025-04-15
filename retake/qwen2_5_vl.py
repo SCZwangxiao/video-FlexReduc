@@ -10,7 +10,7 @@ import torch.utils.checkpoint
 from torch.nn import CrossEntropyLoss
 import numpy as np
 
-from transformers.cache_utils import Cache
+from transformers.cache_utils import Cache, SlidingWindowCache
 from transformers.generation import GenerationMixin, GenerationConfig, LogitsProcessorList, StoppingCriteriaList
 from transformers.generation.utils import GenerateOutput
 from transformers.modeling_utils import PreTrainedModel
@@ -38,6 +38,277 @@ else:
 DEBUG_MODE = False
 
 logger = logging.get_logger(__name__)
+
+
+# Add `config.use_sliding_window ` into original implementation
+@staticmethod
+def fixed_Qwen2_5_VLModel_prepare_4d_causal_attention_mask_with_cache_position(
+    attention_mask: torch.Tensor,
+    sequence_length: int,
+    target_length: int,
+    dtype: torch.dtype,
+    device: torch.device,
+    cache_position: torch.Tensor,
+    batch_size: int,
+    config,
+    past_key_values: Cache,
+):
+    """
+    Creates a causal 4D mask of shape `(batch_size, 1, query_length, key_value_length)` from a 2D mask of shape
+    `(batch_size, key_value_length)`, or if the input `attention_mask` is already 4D, do nothing.
+
+    Args:
+        attention_mask (`torch.Tensor`):
+            A 2D attention mask of shape `(batch_size, key_value_length)` or a 4D attention mask of shape `(batch_size, 1, query_length, key_value_length)`.
+        sequence_length (`int`):
+            The sequence length being processed.
+        target_length (`int`):
+            The target length: when generating with static cache, the mask should be as long as the static cache, to account for the 0 padding, the part of the cache that is not filled yet.
+        dtype (`torch.dtype`):
+            The dtype to use for the 4D attention mask.
+        device (`torch.device`):
+            The device to plcae the 4D attention mask on.
+        cache_position (`torch.Tensor`):
+            Indices depicting the position of the input sequence tokens in the sequence.
+        batch_size (`torch.Tensor`):
+            Batch size.
+        config (`Qwen2_5_VLConfig`):
+            The model's configuration class
+        past_key_values (`Cache`):
+            The cache class that is being used currently to generate
+    """
+    if attention_mask is not None and attention_mask.dim() == 4:
+        # In this case we assume that the mask comes already in inverted form and requires no inversion or slicing.
+        causal_mask = attention_mask
+    else:
+        min_dtype = torch.finfo(dtype).min
+        causal_mask = torch.full(
+            (sequence_length, target_length), fill_value=min_dtype, dtype=dtype, device=device
+        )
+        diagonal_attend_mask = torch.arange(target_length, device=device) > cache_position.reshape(-1, 1)
+        if config.use_sliding_window and config.sliding_window is not None:
+            # if we have sliding window, we should not attend to tokens beyond sliding window length, so we mask them out also
+            # the check is needed to verify is current checkpoint was trained with sliding window or not
+            if not isinstance(past_key_values, SlidingWindowCache) or sequence_length > target_length:
+                sliding_attend_mask = torch.arange(target_length, device=device) <= (
+                    cache_position.reshape(-1, 1) - config.sliding_window
+                )
+                diagonal_attend_mask.bitwise_or_(sliding_attend_mask)
+        causal_mask *= diagonal_attend_mask
+        causal_mask = causal_mask[None, None, :, :].expand(batch_size, 1, -1, -1)
+        if attention_mask is not None:
+            causal_mask = causal_mask.clone()  # copy to contiguous memory for in-place edit
+            if attention_mask.shape[-1] > target_length:
+                attention_mask = attention_mask[:, :target_length]
+            mask_length = attention_mask.shape[-1]
+            padding_mask = causal_mask[:, :, :, :mask_length] + attention_mask[:, None, None, :]
+            padding_mask = padding_mask == 0
+            causal_mask[:, :, :, :mask_length] = causal_mask[:, :, :, :mask_length].masked_fill(
+                padding_mask, min_dtype
+            )
+    return causal_mask
+
+
+def retake_Qwen2_5_VLAttention_forward(
+    self,
+    hidden_states: torch.Tensor,
+    attention_mask: Optional[torch.Tensor] = None,
+    position_ids: Optional[torch.LongTensor] = None,
+    past_key_value: Optional[Cache] = None,
+    output_attentions: bool = False,
+    use_cache: bool = False,
+    cache_position: Optional[torch.LongTensor] = None,
+    position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,  # necessary, but kept here for BC
+) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
+    bsz, q_len, _ = hidden_states.size()
+
+    query_states = self.q_proj(hidden_states)
+    key_states = self.k_proj(hidden_states)
+    value_states = self.v_proj(hidden_states)
+
+    query_states = query_states.view(bsz, q_len, -1, self.head_dim).transpose(1, 2)
+    key_states = key_states.view(bsz, q_len, -1, self.head_dim).transpose(1, 2)
+    value_states = value_states.view(bsz, q_len, -1, self.head_dim).transpose(1, 2)
+
+    # Update position_ids if positional embeddings are reforged
+    if past_key_value is not None and getattr(past_key_value, "pos_embed_reforge", False):
+        # This code reforge the `position_ids` of current chunk, 
+        # the `position_ids` of previous chunks are reforged in KVCache.update()
+        prev_tempo_idx = past_key_value.get_prev_temporal_idx(self.layer_idx)
+        cur_tempo_idx = position_ids[0,0,0]
+        if prev_tempo_idx + 1 != cur_tempo_idx:
+            assert bsz == 1
+            # print("Warning! Discontinuous positional ids %d (prev) + 1 != %d (cur) at layer %d. Fixed!" % (prev_tempo_idx,  cur_tempo_idx, self.layer_idx))
+            # NOTE: clone `position_ids` to avoid influence of in-place ops in different layers
+            position_ids = position_ids.clone()
+            position_ids[0,0,:] += prev_tempo_idx + 1 - cur_tempo_idx
+        position_embeddings = None # `position_embeddings` need to be re-calculated
+
+    # Because the input can be padded, the absolute sequence length depends on the max position id.
+    if position_embeddings is None:
+        logger.warning_once(
+            "The attention layers in this model are transitioning from computing the RoPE embeddings internally "
+            "through `position_ids` (2D tensor with the indexes of the tokens), to using externally computed "
+            "`position_embeddings` (Tuple of tensors, containing cos and sin). In v4.46 `position_ids` will be "
+            "removed and `position_embeddings` will be mandatory."
+        )
+        cos, sin = self.rotary_emb(value_states, position_ids)
+    else:
+        cos, sin = position_embeddings
+    query_states, key_states = apply_multimodal_rotary_pos_emb(
+        query_states, key_states, cos, sin, self.rope_scaling["mrope_section"]
+    )
+
+    if past_key_value is not None:
+        cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}  # Specific to RoPE models
+        cache_kwargs.update({"query_states": query_states, "position_ids": position_ids, 
+                             "rotary_emb": self.rotary_emb, "mrope_section": self.rope_scaling["mrope_section"]})
+        key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
+
+    # repeat k/v heads if n_kv_heads < n_heads
+    key_states = repeat_kv(key_states, self.num_key_value_groups)
+    value_states = repeat_kv(value_states, self.num_key_value_groups)
+
+    attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim)
+
+    if attention_mask is not None:  # no matter the length, we just slice it
+        causal_mask = attention_mask[:, :, :, : key_states.shape[-2]]
+        attn_weights = attn_weights + causal_mask
+
+    # Fix precision issues in Qwen2-VL float16 inference
+    # Replace inf values with zeros in attention weights to prevent NaN propagation
+    if query_states.dtype == torch.float16:
+        attn_weights = torch.where(torch.isinf(attn_weights), torch.zeros_like(attn_weights), attn_weights)
+
+    # upcast attention to fp32
+    attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
+    attn_weights = nn.functional.dropout(attn_weights, p=self.attention_dropout, training=self.training)
+    attn_output = torch.matmul(attn_weights, value_states)
+
+    if attn_output.size() != (bsz, self.num_heads, q_len, self.head_dim):
+        raise ValueError(
+            f"`attn_output` should be of size {(bsz, self.num_heads, q_len, self.head_dim)}, but is"
+            f" {attn_output.size()}"
+        )
+
+    attn_output = attn_output.transpose(1, 2).contiguous()
+    attn_output = attn_output.reshape(bsz, q_len, -1)
+
+    attn_output = self.o_proj(attn_output)
+
+    if not output_attentions:
+        attn_weights = None
+
+    return attn_output, attn_weights, past_key_value
+
+
+def retake_Qwen2_5_VLSdpaAttention_forward(
+    self,
+    hidden_states: torch.Tensor,
+    attention_mask: Optional[torch.Tensor] = None,
+    position_ids: Optional[torch.LongTensor] = None,
+    past_key_value: Optional[Cache] = None,
+    output_attentions: bool = False,
+    use_cache: bool = False,
+    cache_position: Optional[torch.LongTensor] = None,
+    position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,  # necessary, but kept here for BC
+) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[Tuple[torch.Tensor]]]:
+    if output_attentions:
+        # TODO: Improve this warning with e.g. `model.config.attn_implementation = "manual"` once this is implemented.
+        logger.warning_once(
+            "Qwen2_5_VLModel is using Qwen2_5_VLSdpaAttention, but `torch.nn.functional.scaled_dot_product_attention` does not support `output_attentions=True`. Falling back to the manual attention implementation, "
+            'but specifying the manual implementation will be required from Transformers version v5.0.0 onwards. This warning can be removed using the argument `attn_implementation="eager"` when loading the model.'
+        )
+        return super().forward(
+            hidden_states=hidden_states,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            past_key_value=past_key_value,
+            output_attentions=output_attentions,
+            use_cache=use_cache,
+            cache_position=cache_position,
+            position_embeddings=position_embeddings,
+        )
+
+    bsz, q_len, _ = hidden_states.size()
+
+    query_states = self.q_proj(hidden_states)
+    key_states = self.k_proj(hidden_states)
+    value_states = self.v_proj(hidden_states)
+
+    query_states = query_states.view(bsz, q_len, -1, self.head_dim).transpose(1, 2)
+    key_states = key_states.view(bsz, q_len, -1, self.head_dim).transpose(1, 2)
+    value_states = value_states.view(bsz, q_len, -1, self.head_dim).transpose(1, 2)
+
+    # Update position_ids if positional embeddings are reforged
+    if past_key_value is not None and getattr(past_key_value, "pos_embed_reforge", False):
+        # This code reforge the `position_ids` of current chunk, 
+        # the `position_ids` of previous chunks are reforged in KVCache.update()
+        prev_tempo_idx = past_key_value.get_prev_temporal_idx(self.layer_idx)
+        cur_tempo_idx = position_ids[0,0,0]
+        if prev_tempo_idx + 1 != cur_tempo_idx:
+            assert bsz == 1
+            # print("Warning! Discontinuous positional ids %d (prev) + 1 != %d (cur) at layer %d. Fixed!" % (prev_tempo_idx,  cur_tempo_idx, self.layer_idx))
+            # NOTE: clone `position_ids` to avoid influence of in-place ops in different layers
+            position_ids = position_ids.clone()
+            position_ids[0,0,:] += prev_tempo_idx + 1 - cur_tempo_idx
+        position_embeddings = None # `position_embeddings` need to be re-calculated
+
+    # Because the input can be padded, the absolute sequence length depends on the max position id.
+    if position_embeddings is None:
+        logger.warning_once(
+            "The attention layers in this model are transitioning from computing the RoPE embeddings internally "
+            "through `position_ids` (2D tensor with the indexes of the tokens), to using externally computed "
+            "`position_embeddings` (Tuple of tensors, containing cos and sin). In v4.46 `position_ids` will be "
+            "removed and `position_embeddings` will be mandatory."
+        )
+        cos, sin = self.rotary_emb(value_states, position_ids)
+    else:
+        cos, sin = position_embeddings
+    query_states, key_states = apply_multimodal_rotary_pos_emb(
+        query_states, key_states, cos, sin, self.rope_scaling["mrope_section"]
+    )
+
+    if past_key_value is not None:
+        cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}  # Specific to RoPE models
+        cache_kwargs.update({"query_states": query_states, "position_ids": position_ids, 
+                             "rotary_emb": self.rotary_emb, "mrope_section": self.rope_scaling["mrope_section"]})
+        key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
+
+    key_states = repeat_kv(key_states, self.num_key_value_groups)
+    value_states = repeat_kv(value_states, self.num_key_value_groups)
+
+    causal_mask = attention_mask
+    if attention_mask is not None:  # no matter the length, we just slice it
+        causal_mask = attention_mask[:, :, :, : key_states.shape[-2]]
+
+    # SDPA with memory-efficient backend is currently (torch==2.1.2) bugged with non-contiguous inputs with custom attn_mask,
+    # Reference: https://github.com/pytorch/pytorch/issues/112577.
+    if query_states.device.type == "cuda" and attention_mask is not None:
+        query_states = query_states.contiguous()
+        key_states = key_states.contiguous()
+        value_states = value_states.contiguous()
+
+    # We dispatch to SDPA's Flash Attention or Efficient kernels via this `is_causal` if statement instead of an inline conditional assignment
+    # in SDPA to support both torch.compile's dynamic shapes and full graph options. An inline conditional prevents dynamic shapes from compiling.
+    # The q_len > 1 is necessary to match with AttentionMaskConverter.to_causal_4d that does not create a causal mask in case q_len == 1.
+    is_causal = True if causal_mask is None and q_len > 1 else False
+
+    attn_output = torch.nn.functional.scaled_dot_product_attention(
+        query_states,
+        key_states,
+        value_states,
+        attn_mask=causal_mask,
+        dropout_p=self.attention_dropout if self.training else 0.0,
+        is_causal=is_causal,
+    )
+
+    attn_output = attn_output.transpose(1, 2).contiguous()
+    attn_output = attn_output.view(bsz, q_len, self.hidden_size)
+
+    attn_output = self.o_proj(attn_output)
+
+    return attn_output, None, past_key_value
 
 
 def retake_Qwen2_5_VLFlashAttention2_forward(
@@ -210,7 +481,7 @@ def retake_Qwen2_5_VLForConditionalGeneration_get_chunk_size(self, config, video
     return chunk_prefill_size
 
 def retake_Qwen2_5_VLForConditionalGeneration_forge_input_chunks(self, ss, ee, modality_segments, cache_position, position_ids, attention_mask, past_key_values, inputs_embeds):
-    cache_position_chunk = cache_position[:ee]
+    cache_position_chunk = cache_position[ss:ee]
     position_ids_chunk = position_ids[:,:,ss:ee]
     attention_mask_chunk = attention_mask[:,:ee] # NOTE: specially from 0 to ee
     inputs_embeds_chunk = inputs_embeds[:,ss:ee]
@@ -229,7 +500,7 @@ def retake_Qwen2_5_VLForConditionalGeneration_forge_input_chunks(self, ss, ee, m
             attention_mask_chunk = torch.cat([attention_mask_chunk, attention_mask[:,s_p:e_p]], dim=1)
             inputs_embeds_chunk = torch.cat([inputs_embeds_chunk, inputs_embeds[:,s_p:e_p]], dim=1)
             prompt_length = e_p - s_p
-            cache_position_chunk = cache_position[:ee+prompt_length]
+            cache_position_chunk = cache_position[ss:ee+prompt_length]
 
     return cache_position_chunk, position_ids_chunk, attention_mask_chunk, inputs_embeds_chunk, prompt_length
 
@@ -395,7 +666,7 @@ def retake_Qwen2_5_VLForConditionalGeneration_forward(
                     output_attentions=output_attentions,
                     output_hidden_states=output_hidden_states,
                     return_dict=return_dict,
-                    cache_position=cache_position[:e],
+                    cache_position=cache_position[s:e],
                 )
                 past_key_values = outputs['past_key_values']
             elif dtype == 'video': # Prefill video may with kvcache_compression

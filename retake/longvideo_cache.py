@@ -664,9 +664,9 @@ class StandardVidLangKVCache(VidLangKVCache):
                     compression_ratio = min(1, ratio * compression_ratio)
                 # print('global comp ratio: %.4f, layer comp_ratio: %.4f, chunk comp_ratio %.4f' % (self.compression_ratio, comp_ratio_ori, compression_ratio))
                 keep_len = max(1, int(max(0.01, compression_ratio) * k_len)) # Evict new tokens only
-                if keep_len == 1:
-                    # print("AdaVidLangKVCache.after_forward(): Got ill compression_ratio! compression_ratio_layers", compression_ratio_layers)
-                    print("AdaVidLangKVCache.after_forward(): Got ill compression_ratio!")
+                # if keep_len == 1:
+                #     # print("AdaVidLangKVCache.after_forward(): Got ill compression_ratio! compression_ratio_layers", compression_ratio_layers)
+                #     print("AdaVidLangKVCache.after_forward(): Got ill compression_ratio!")
                 _, keep_indices = attn_cumscores.topk(keep_len)
                 keep_indices = keep_indices.sort().values # [keep_len]
                 keep_indices_kv = keep_indices[None,None,:,None].repeat(bsz, self.num_key_value_heads, 1, self.head_dim) # [bsz, num_key_value_heads, keep_len, head_dim]

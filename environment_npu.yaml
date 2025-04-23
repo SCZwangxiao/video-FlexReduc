@@ -19,3 +19,5 @@ dependencies:
       - pyarrow==17.0.0
       - openai==1.56.0
       - tqdm==4.67.1
+      - attrs==23.2.0
+      - decorator==5.2.1
